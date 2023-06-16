@@ -1,10 +1,10 @@
+import logging
 import re
 from urllib.parse import urljoin
 
 import requests_cache
 from bs4 import BeautifulSoup
 from tqdm import tqdm
-import logging
 
 from configs import configure_argument_parser, configure_logging
 from constants import BASE_DIR, MAIN_DOC_URL, PEP_STATUS_URL
@@ -48,6 +48,7 @@ def pep(session):
     table = pep_table.find_all('tr')
     results = [('Статус', 'Количество')]
     result_dict = {}
+    mismatch_messages = []
     for row in tqdm(table):
         table_status = find_tag(row, 'abbr').text[1:]
         pep_number = find_tag(row, 'a')
@@ -57,17 +58,17 @@ def pep(session):
             continue
         soup = BeautifulSoup(response.text, 'lxml')
         work_block = find_tag(soup, 'dl', attrs={'class': 'rfc2822'})
-        status_tag = work_block.find(text='Status').parent
+        status_tag = work_block.find(string='Status').parent
         page_status = status_tag.find_next_sibling().string
-        status_comparison(table_status, page_status)
-        if page_status in result_dict:
-            result_dict[page_status] += 1
-        else:
-            result_dict[page_status] = 1
-
-    for key, value in result_dict.items():
-        results.append((str(key), str(value)))
+        mismatch_message = status_comparison(table_status, page_status)
+        if mismatch_message is not None:
+            mismatch_messages.append(mismatch_message)
+        result_dict[page_status] = result_dict.get(page_status, 0) + 1
+    results.extend(
+        (str(key), str(value)) for key, value in result_dict.items())
     results.append(('Total', str(sum(result_dict.values()))))
+    mismatch = '\n'.join(message for message in mismatch_messages)
+    logging.info(f'Несовпадающие статусы: \n{mismatch}')
     return results
 
 
